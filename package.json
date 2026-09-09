@@ -1,0 +1,112 @@
+{
+  "name": "@moriyoshi/drawio-svg-optimizer",
+  "version": "0.1.0",
+  "description": "Optimize SVGs exported from diagrams.net (draw.io)",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moriyoshi/drawio-svg-optimizer.git"
+  },
+  "homepage": "https://github.com/moriyoshi/drawio-svg-optimizer#readme",
+  "bugs": {
+    "url": "https://github.com/moriyoshi/drawio-svg-optimizer/issues"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "bin": {
+    "drawio-svg-optimizer": "./dist/cli.js",
+    "drawio-svgo": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./dist/browser/index.d.ts",
+        "default": "./dist/browser/index.js"
+      },
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser/index.d.ts",
+      "import": "./dist/browser/index.js"
+    },
+    "./fonts": {
+      "types": "./dist/fonts/index.d.ts",
+      "import": "./dist/fonts/index.js"
+    },
+    "./svgo": {
+      "types": "./dist/svgo/plugins.d.ts",
+      "import": "./dist/svgo/plugins.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "oxlint --type-aware src test",
+    "lint:fix": "oxlint --fix src test",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run --exclude \"test/visual/**\"",
+    "test:watch": "vitest",
+    "test:visual": "vitest run test/visual",
+    "test:e2e:fonts": "./test/e2e/run.sh",
+    "test:linux": "./test/e2e/run.sh linux",
+    "test:windows": "./test/e2e/run.sh windows",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run check:browser && npm test",
+    "check:browser": "node scripts/check-browser.mjs",
+    "test:e2e": "npm run test:e2e:fonts && npm run test:visual"
+  },
+  "dependencies": {
+    "@shuding/opentype.js": "^1.4.0-beta.0",
+    "font-finder": "^1.1.0",
+    "get-system-fonts": "^2.0.2",
+    "htmlparser2": "^10.0.0",
+    "satori": "^0.33.4",
+    "svgo": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pngjs": "^6.0.5",
+    "esbuild": "^0.28.2",
+    "oxlint": "^1.0.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "pixelmatch": "^7.2.0",
+    "playwright": "^1.63.0",
+    "pngjs": "^7.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "keywords": [
+    "svg",
+    "svgo",
+    "drawio",
+    "diagrams.net",
+    "optimizer",
+    "satori",
+    "foreignobject"
+  ],
+  "optionalDependencies": {
+    "koffi": "^3.2.1"
+  },
+  "browser": {
+    "svgo": "svgo/browser",
+    "koffi": false,
+    "font-finder": false,
+    "get-system-fonts": false,
+    "./dist/core/gzip.js": "./dist/core/gzip.browser.js",
+    "./dist/core/satoriStage.js": "./dist/core/satoriStage.browser.js"
+  }
+}

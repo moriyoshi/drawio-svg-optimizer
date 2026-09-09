@@ -1,0 +1,8 @@
+{
+  // `tsconfig.json` compiles only `src/`, so nothing under `test/` was ever
+  // typechecked — a test could call a function that no longer exists and only
+  // fail if vitest happened to reach that line.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "rootDir": "." },
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}

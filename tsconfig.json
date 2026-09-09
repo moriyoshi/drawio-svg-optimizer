@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // `DOM` is here for the browser build's shaping stage, which measures real
+    // laid-out text. Verified to cause no collision with `@types/node`'s
+    // `fetch`/`Blob`/`setTimeout` declarations. The cost is that a Node-only
+    // module could now reference `document` and still compile; `check:browser`
+    // catches the reverse mistake, and nothing catches this one.
+    // ES2023 is what `engines: node >=20` buys: `toReversed`/`toSorted` are
+    // used in the plugins and arrived in Node 20, so the two move together.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}
