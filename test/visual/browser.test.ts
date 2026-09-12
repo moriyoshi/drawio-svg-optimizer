@@ -159,6 +159,48 @@ describe('the optimizer in a browser', () => {
     await page.close()
   }, 180_000)
 
+  it('keeps dark mode alive through the conversion', async () => {
+    // `normalizeStyle` resolves `light-dark()` to its light half before anything
+    // is laid out, because Satori cannot parse the function and both backends
+    // share that front half. `getComputedStyle` therefore hands back the light
+    // colour, and without putting the pair back every converted label is frozen
+    // in light mode — `example.svg` uses `light-dark()` 199 times.
+    const fixture = (globalThis as { __fixture?: string }).__fixture!
+    const convert = async (colorScheme: 'light' | 'dark'): Promise<string> => {
+      const page = await browser.newPage({ colorScheme })
+      await page.goto(origin)
+      await page.waitForFunction(() => '__optimizer' in globalThis)
+      const data = await page.evaluate(async (svg: string) => {
+        const optimizer = (globalThis as unknown as { __optimizer: OptimizerModule }).__optimizer
+        const output = await optimizer.optimizeDrawioSvg(svg, {
+          preset: 'aggressive',
+          satori: true,
+        })
+        return output.data
+      }, fixture)
+      await page.close()
+      return data
+    }
+
+    const light = await convert('light')
+    // Painted elements, not the leftover markup: before the pairs were restored
+    // there were none of these at all, though the document still carried 41
+    // `light-dark()` on shapes the label conversion never touches.
+    const painted = light.match(/<(?:text|g)\b[^>]*\bfill="light-dark\([^"]*\)"/g) ?? []
+    expect(painted.length).toBeGreaterThan(0)
+    // A JSON key's blue, which the export only ever uses inside a label. The
+    // authored halves survive verbatim even though the colour was matched on the
+    // browser's own serialisation of the light one.
+    expect(light).toContain('fill="light-dark(rgb(143, 176, 220), rgb(64, 92, 130))"')
+    // And one whose authored form is not how a browser serialises it, so it only
+    // matches if the light half was put through the same serialisation first.
+    expect(light).toContain('fill="light-dark(#000000, #ffffff)"')
+
+    // The output must not depend on the theme the converting page happened to be
+    // in. That is what makes it portable rather than a snapshot of one viewer.
+    expect(await convert('dark')).toBe(light)
+  }, 180_000)
+
   it('embeds fonts the caller supplies, measuring with the very same face', async () => {
     // The portability path. Measuring with the browser's fonts and then
     // embedding bytes from somewhere else would be worse than embedding
@@ -256,6 +298,56 @@ describe('the optimizer in a browser', () => {
     expect(reassembled).toBe('alpha beta gamma delta epsilon zeta eta theta')
 
     await page.close()
+  }, 180_000)
+
+  it('keeps the indentation of a white-space: pre code block', async () => {
+    // draw.io writes a code block's indentation as its own `<span>`, so
+    // `toVdom` gives it a run — and therefore a flex item — of its own. Flexbox
+    // does not render an anonymous flex item that is nothing but whitespace,
+    // even under `white-space: pre`, so the browser collapsed every one of them
+    // to zero width and each nested line of a JSON block came out flush against
+    // the margin. Satori has no such rule, which is why only this backend was
+    // wrong. The Node equivalent is in `test/pretty.test.ts`.
+    const code =
+      '<span style="font-family: monospace; white-space: pre;">{<br/>      </span>' +
+      '<span style="font-family: monospace; white-space: pre; color: #8fb0dc;">"jisx0402"</span>'
+    const label =
+      '<foreignObject style="overflow: visible;" pointer-events="none" width="100%" height="100%">' +
+      '<div xmlns="http://www.w3.org/1999/xhtml" style="display: flex; align-items: unsafe center;' +
+      ' justify-content: unsafe center; width: 1px; height: 1px; padding-top: 40px; margin-left: 60px;">' +
+      '<div style="box-sizing: border-box; font-size: 0; text-align: left;">' +
+      '<div style="display: inline-block; font-size: 12px; font-family: monospace;' +
+      ` line-height: 1.2; white-space: nowrap;">${code}</div></div></div></foreignObject>`
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">' +
+      `<switch>${label}<text x="0" y="0">fallback</text></switch></svg>`
+
+    const page = await browser.newPage()
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(String(error)))
+    await page.goto(origin)
+    await page.waitForFunction(() => '__optimizer' in globalThis)
+
+    const data = await page.evaluate(async (input: string) => {
+      const optimizer = (globalThis as unknown as { __optimizer: OptimizerModule }).__optimizer
+      const output = await optimizer.optimizeDrawioSvg(input, { preset: 'aggressive', satori: true })
+      return output.data
+    }, svg)
+    await page.close()
+
+    expect(errors).toEqual([])
+    const runs = absoluteTextRuns(data)
+    const brace = runs.find((run) => run.text.includes('{'))
+    const key = runs.find((run) => run.text.includes('jisx0402'))
+    expect(brace).toBeDefined()
+    expect(key).toBeDefined()
+
+    // Six spaces of monospace at 12px is roughly 43px, and was 0 before.
+    const indent = key!.x - brace!.x
+    expect(indent).toBeGreaterThan(20)
+
+    // And the characters are the label's own, not a non-breaking stand-in.
+    expect(data).not.toContain('\u00a0')
   }, 180_000)
 
   it('places text where draw.io placed its own', async () => {

@@ -47,6 +47,37 @@ describe('rendering the vdom as HTML', () => {
     )
   })
 
+  it('gives a whitespace-only run an element of its own', async () => {
+    // Flexbox does not render an anonymous flex item that is nothing but
+    // whitespace, and that holds even under `white-space: pre`. Satori has no
+    // such rule, so a code block's indentation — which draw.io puts in a span of
+    // its own — laid out correctly there and collapsed to zero width here,
+    // leaving every nested line of a `pre` JSON block flush against the margin.
+    const html = vnodeToHtml({
+      type: 'div',
+      props: {
+        style: { display: 'flex', flexDirection: 'row' },
+        children: [
+          { type: 'span', props: { style: { whiteSpace: 'pre', display: 'flex' }, children: ['      '] } },
+          { type: 'span', props: { style: { whiteSpace: 'pre', display: 'flex' }, children: ['"key"'] } },
+        ],
+      },
+    })
+    expect(html).toContain('<span>      </span>')
+    // Text with ink in it already gets an anonymous item and must not be wrapped.
+    expect(html).not.toContain('<span>"key"</span>')
+  })
+
+  it('leaves U+3000 alone, which CSS never collapses', async () => {
+    // Not whitespace as far as the white-space property is concerned, so it
+    // renders as an ordinary anonymous flex item and needs no wrapper.
+    const html = vnodeToHtml({
+      type: 'span',
+      props: { style: { display: 'flex' }, children: ['　'] },
+    })
+    expect(html).toBe('<span style="display:flex;flex-direction:column">　</span>')
+  })
+
   it('escapes text and attributes', async () => {
     const html = vnodeToHtml({
       type: 'div',
@@ -91,5 +122,24 @@ describe('drawing measured runs', () => {
 
   it('rounds coordinates to hundredths', async () => {
     expect(runsToSvg([run({ x: 1.23456, y: 9.87654 })], round)).toContain('x="1.23" y="9.88"')
+  })
+
+  it('preserves whitespace SVG would otherwise strip, the way the Satori path does', async () => {
+    // `xml:space="default"` strips leading and trailing spaces from a `<text>`
+    // and collapses internal runs, so the indent of a `white-space: pre` block
+    // disappears. Substituting NBSP instead measured one character and drew
+    // another, left the text no longer byte-identical to the label's, and hid
+    // a blank run from `postprocessSatori`, which then shipped it as a ghost
+    // element. A single leading space was not covered by it at all.
+    const indented = runsToSvg([run({ text: '    {' })], round)
+    expect(indented).toContain('xml:space="preserve"')
+    expect(indented).toContain('>    {<')
+    expect(runsToSvg([run({ text: ' /v1/postalcode' })], round)).toContain('xml:space="preserve"')
+    // No U+00A0 anywhere: the output names the same characters the label did.
+    expect(indented).not.toContain('\u00a0')
+  })
+
+  it('leaves ordinary text without the preserve attribute', async () => {
+    expect(runsToSvg([run({ text: 'Hi there' })], round)).not.toContain('xml:space')
   })
 })

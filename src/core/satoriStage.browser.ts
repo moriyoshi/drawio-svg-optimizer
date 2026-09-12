@@ -16,6 +16,8 @@ import { measure, place } from './place.js'
 import { measureRuns, runsToSvg, vnodeToHtml } from './domShape.js'
 import { toVdom } from '../html/toVdom.js'
 import { postprocessSatori } from './satoriPostprocess.js'
+import type { ColorPair } from '../html/normalizeCss.js'
+import type { ShapedRun } from './domShape.js'
 import type { ParsedLabel } from '../html/label.js'
 import type { ProtectedRegion } from './protect.js'
 import type { SatoriOutcome, SatoriStageOptions } from './satoriStage.js'
@@ -46,6 +48,68 @@ function createStage(document: Document): HTMLElement {
     'margin:0;padding:0;border:0;line-height:normal'
   document.body.append(host)
   return host
+}
+
+/**
+ * Put dark mode back.
+ *
+ * `normalizeStyle` resolves `light-dark()` to its light half before the tree is
+ * ever laid out — Satori cannot parse the function, and both backends share that
+ * front half — so the colour measured here is always the light one, whatever
+ * theme the host page is in. Rewriting it back into the pair it came from is
+ * what keeps a converted label adapting to the theme; `example.svg` uses
+ * `light-dark()` 199 times, so dropping it is not an edge case.
+ *
+ * The Node stage matches on the colour string the export authored, because that
+ * is what Satori was handed and what it writes back out. Here the colour arrives
+ * from `getComputedStyle`, already serialised the browser's way — `#8fb0dc`
+ * comes back as `rgb(143, 176, 220)` — so the authored halves have to go through
+ * the same serialisation before they can be compared. The browser is the only
+ * thing that knows that mapping, and it is right here.
+ */
+function lightDarkByComputedColor(
+  document: Document,
+  pairs: Map<string, ColorPair>,
+): Map<string, string> {
+  const restored = new Map<string, string>()
+  if (pairs.size === 0) return restored
+
+  const probe = document.createElement('span')
+  probe.setAttribute('aria-hidden', 'true')
+  probe.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden'
+  document.body.append(probe)
+  try {
+    for (const { light, dark } of pairs.values()) {
+      if (light === dark) continue
+      // `currentColor` resolves against whatever element it sits on, so there is
+      // no single colour to key it by. Leaving those runs alone loses the dark
+      // half, which is what happened before this existed; guessing would lose
+      // the light one too.
+      if (/\bcurrentcolor\b/i.test(light)) continue
+
+      probe.style.color = ''
+      probe.style.color = light
+      // An unparseable colour leaves the property unset rather than throwing,
+      // and reading the computed style then reports the inherited colour — which
+      // would map an unrelated black onto this pair.
+      if (probe.style.color === '') continue
+      const computed = getComputedStyle(probe).color
+      if (computed === '') continue
+      restored.set(computed, `light-dark(${light}, ${dark})`)
+    }
+  } finally {
+    probe.remove()
+  }
+  return restored
+}
+
+/** Rewrite each measured fill into the `light-dark()` pair it was resolved from. */
+function restoreLightDark(runs: ShapedRun[], restored: Map<string, string>): void {
+  if (restored.size === 0) return
+  for (const run of runs) {
+    const pair = restored.get(run.fill)
+    if (pair !== undefined) run.fill = pair
+  }
 }
 
 /**
@@ -131,7 +195,7 @@ export async function runSatoriStage(
       if (label?.root === undefined || label.box === undefined) continue
       const box = label.box
 
-      const { node, fontFamilies } = toVdom(label.root, box.width)
+      const { node, fontFamilies, colorPairs } = toVdom(label.root, box.width)
       for (const family of fontFamilies) usedFamilies.add(family)
 
       host.style.width = `${Math.max(1, Math.ceil(box.width > 1 ? box.width : SHAPING_WIDTH))}px`
@@ -157,6 +221,10 @@ export async function runSatoriStage(
         continue
       }
       const { dx, dy } = place(box, bounds)
+
+      // After measuring and placing: a `light-dark()` fill is not a colour the
+      // geometry ever needed, and `measure` reads nothing but rectangles.
+      restoreLightDark(runs, lightDarkByComputedColor(globalThis.document, colorPairs))
 
       const fragment = runsToSvg(runs, round)
       const { body, groupAttributes } =
