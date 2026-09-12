@@ -43,7 +43,7 @@ const PRESENTATION = [
  * affected; U+3000 is an ordinary character and survives, which is why the
  * ideographic indents of Japanese labels never showed this.
  */
-function needsSpacePreserved(text: string): boolean {
+export function needsSpacePreserved(text: string): boolean {
   return /^[ \t\n\r]|[ \t\n\r]$|[ \t\n\r]{2,}|[\t\n\r]/.test(text)
 }
 
@@ -194,6 +194,10 @@ export function postprocessSatori(
       const parts: string[] = []
       for (const [name, value] of Object.entries(run.attributes)) {
         if (IGNORED_ON_TEXT.has(name)) continue
+        // Re-derived below. Merging changes what a run's text is, so an
+        // incoming `xml:space` from the browser path describes the pieces
+        // rather than the run, and copying it would also emit it twice.
+        if (name === 'xml:space') continue
         if (groupAttributes[name] === value) continue
         if (DEFAULTS[name] === value) continue
         parts.push(`${name}="${name === 'x' || name === 'y' ? round(value, precision) : value}"`)

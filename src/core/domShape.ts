@@ -17,6 +17,7 @@
  * What this cannot do is produce font *bytes*, so `fontDelivery: 'inline'` has
  * nothing to embed. That is reported rather than hidden.
  */
+import { needsSpacePreserved } from './satoriPostprocess.js'
 import type { VNode } from '../html/toVdom.js'
 import type { TextRun } from './place.js'
 
@@ -32,7 +33,13 @@ export interface ShapedRun extends TextRun {
   letterSpacing?: number
 }
 
-const NBSP = ' '
+/**
+ * Whitespace CSS's white-space processing acts on.
+ *
+ * The same set `toVdom` collapses against, and deliberately not `\s`: U+3000
+ * is an ordinary character to CSS, and draw.io indents Japanese with it.
+ */
+const COLLAPSIBLE_ONLY = /^[ \t\n\r\f]+$/
 
 function escapeText(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -88,6 +95,29 @@ function styleString(style: Record<string, string | number> | undefined): string
 }
 
 /**
+ * Render one child, giving a run of pure whitespace an element of its own.
+ *
+ * Flexbox wraps each contiguous sequence of child text runs in an anonymous
+ * flex item — *except* one that is nothing but whitespace, which is not
+ * rendered at all, and that holds even under `white-space: pre` (CSS Flexbox 1
+ * §4). Satori does not implement the rule, so the same tree laid out one way
+ * there and another here: draw.io puts a code block's indentation in a `<span>`
+ * of its own, `toVdom` gives that run its own flex item, and the browser
+ * collapsed it to zero width — leaving every nested line of a `pre` JSON block
+ * flush against the margin while Satori indented it correctly.
+ *
+ * An element child is a flex item whatever it contains, so wrapping restores
+ * the width. It changes nothing for text that has ink in it, which already gets
+ * an anonymous item.
+ */
+function childToHtml(child: VNode | string): string {
+  if (typeof child === 'string' && COLLAPSIBLE_ONLY.test(child)) {
+    return `<span>${escapeText(child)}</span>`
+  }
+  return vnodeToHtml(child)
+}
+
+/**
  * Render the vdom `toVdom` built into HTML.
  *
  * The same tree Satori would have consumed, so the scaffold stripping, CSS
@@ -103,8 +133,8 @@ export function vnodeToHtml(node: VNode | string): string {
     children === undefined
       ? ''
       : Array.isArray(children)
-        ? children.map((child) => vnodeToHtml(child)).join('')
-        : vnodeToHtml(children)
+        ? children.map((child) => childToHtml(child)).join('')
+        : childToHtml(children)
 
   return `<${node.type}${style === '' ? '' : ` style="${escapeAttribute(style)}"`}>${inner}</${node.type}>`
 }
@@ -283,10 +313,16 @@ export function runsToSvg(runs: readonly ShapedRun[], round: (value: number) => 
         run.fontStyle === 'normal' ? '' : `font-style="${run.fontStyle}"`,
         `fill="${escapeAttribute(run.fill)}"`,
         run.letterSpacing === undefined ? '' : `letter-spacing="${round(run.letterSpacing)}"`,
+        // SVG collapses whitespace in `<text>` the way HTML does, so without
+        // this a `white-space: pre` run loses its indentation. The same
+        // predicate the Satori path uses, rather than substituting NBSP:
+        // measuring one character and drawing another left the output text no
+        // longer byte-identical to the label's, and an NBSP-only run no longer
+        // looked blank to `postprocessSatori`, so it survived as a ghost
+        // element.
+        needsSpacePreserved(run.text) ? 'xml:space="preserve"' : '',
       ].filter((part) => part !== '')
-      // Non-breaking spaces survive the round trip only if kept literal; SVG
-      // collapses ordinary runs of whitespace in `<text>` the way HTML does.
-      return `<text ${attributes.join(' ')}>${escapeText(run.text.replace(/ {2,}/g, (match) => NBSP.repeat(match.length)))}</text>`
+      return `<text ${attributes.join(' ')}>${escapeText(run.text)}</text>`
     })
     .join('')
 }

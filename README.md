@@ -436,6 +436,18 @@ Runs that need it carry `xml:space="preserve"`. Only U+0020, tab, CR and LF are
 affected, which is why the ideographic indents of Japanese labels never showed
 this. Whitespace-only runs that cannot merge into a neighbour are dropped: they
 draw no ink, and the following run's absolute position already expresses the gap.
+Both backends say it the same way; the browser one substituted non-breaking
+spaces for a while, which measured as one character and drew as another, missed a
+single leading space entirely, and left the output text no longer byte-identical
+to the label's.
+
+**Flexbox does not render a whitespace-only flex item.** Not even under
+`white-space: pre` (CSS Flexbox 1 §4). draw.io puts a code block's indentation in
+a `<span>` of its own, so `toVdom` gives it a flex item of its own, and a real
+browser collapsed every one of them to zero width — each nested line of a `pre`
+JSON block came out flush against the margin. Satori has no such rule, so this
+was visible only on the browser backend. Such a run is wrapped in an element,
+which is a flex item whatever it contains.
 
 **Labels wrap where the browser wraps them.** CJK breaks between almost any two
 characters, so a 58px box holding 84px of Japanese becomes two lines. Forcing
@@ -451,9 +463,15 @@ chain, so text is attributed to the face that actually renders it (following CSS
 inheritance), and any gap is covered by an extra face, trying the families the
 document declares before a script default.
 
-**Dark mode survives.** Satori cannot parse `light-dark()`, so those colours are
-resolved to their light half for shaping and rewritten back into pairs
-afterwards. `example.svg` uses `light-dark()` 199 times.
+**Dark mode survives, on both backends.** Satori cannot parse `light-dark()`, so
+those colours are resolved to their light half for shaping and rewritten back
+into pairs afterwards. `example.svg` uses `light-dark()` 199 times. The
+resolution happens in the shared front half, so the browser backend measures the
+light colour too — but it reads colours back from `getComputedStyle`, which has
+already serialised them its own way, and `#8fb0dc` no longer matches the
+`#8fb0dc` the pair is keyed by. The authored halves are put through the same
+serialisation before being compared, so both backends emit the same pairs. It
+also means the output does not depend on the theme the converting page was in.
 
 **The output names fonts that exist.** An export's own `@import` names the
 families the document asked for, which is not the set the converted text ends up
